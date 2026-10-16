@@ -79,38 +79,20 @@ function cargarSdk(url) {
 }
 
 /**
- * ÚNICO punto que conoce la firma del SDK. Si la guía del MID (CA-03) define otra firma u otros nombres de
- * callbacks, se ajusta sólo aquí. Además se escucha el postMessage `alpha.checkout.v1` del origen del checkout,
- * así que el flujo funciona aunque los callbacks se llamen distinto.
+ * SDK real de Alpha (alpha-checkout.js v1):
+ *   AlphaCheckout.mount({ container, session: { id, embedding, reference? }, onEvent }) → { iframe, cancel(), destroy() }
+ * El SDK valida el embedding (protocol, checkoutOrigin = origen del script, parentOrigin = este origen, nonce, sessionId)
+ * y filtra el postMessage (origen, sessionId, nonce). Todos los eventos llegan a `onEvent`:
+ * ready · resize · processing · result · cancel · expired · error (incluye error/embed_initialization_timeout a los 16 s).
  */
-function montarCheckout(contenedor, embedding, alEvento) {
-  const opciones = {
+function montarCheckout(contenedor, sesion, alEvento) {
+  const instancia = window.AlphaCheckout.mount({
     container: contenedor,
-    sessionId: embedding.sessionId,
-    nonce: embedding.nonce,
-    iframeUrl: embedding.iframeUrl,
-    checkoutOrigin: embedding.checkoutOrigin,
-    embedding,
-    onResult: (d) => alEvento("result", d),
-    onCancel: (d) => alEvento("cancel", d),
-    onExpired: (d) => alEvento("expired", d),
-    onError: (d) => alEvento("error", d),
+    session: sesion, // { id, embedding, reference? } tal cual lo devolvió el backend
     onEvent: (e) => e && e.type && alEvento(e.type, e),
-  };
-  const instancia = window.AlphaCheckout.mount(contenedor, opciones);
-
-  const escucha = (ev) => {
-    if (ev.origin !== embedding.checkoutOrigin) return; // sólo el iframe de Alpha
-    const d = ev.data || {};
-    if (d.protocol && d.protocol !== "alpha.checkout.v1") return;
-    if (d.sessionId && d.sessionId !== embedding.sessionId) return;
-    if (["result", "cancel", "expired", "error"].includes(d.type)) alEvento(d.type, d);
-  };
-  window.addEventListener("message", escucha);
-
+  });
   return () => {
-    window.removeEventListener("message", escucha);
-    try { instancia && typeof instancia.unmount === "function" && instancia.unmount(); } catch { /* nada */ }
+    try { instancia && typeof instancia.destroy === "function" && instancia.destroy(); } catch { /* nada */ }
     contenedor.innerHTML = "";
   };
 }
@@ -133,7 +115,7 @@ async function pagar() {
     await cargarSdk(estado.cfg.sdkUrl);
     $("folio").textContent = `Pedido ${j.pedido.folio} · ${dinero(j.pedido.totalMinor, j.pedido.moneda)}`;
     vista("pago");
-    estado.desmontar = montarCheckout($("checkout"), j.embedding, alEvento);
+    estado.desmontar = montarCheckout($("checkout"), j.sesion, alEvento);
   } catch (e) {
     mostrarError(e.message);
   } finally {
@@ -146,26 +128,36 @@ async function pagar() {
 async function alEvento(tipo, datos) {
   console.log("[checkout]", tipo, datos);
   if (estado.cerrado) return;
+  if (tipo === "processing") return mostrarAviso("Procesando el pago…");
   if (tipo === "result") return confirmar(estado.cfg.modo === "mock" ? "paid" : "");
   if (tipo === "cancel" || tipo === "expired" || tipo === "error") {
     estado.cerrado = true;
-    const textos = { cancel: "Cancelaste el pago.", expired: "La sesión de pago venció.", error: "El checkout reportó un error." };
+    const textos = { cancel: "Cancelaste el pago.", expired: "La sesión de pago venció.", error: "El checkout reportó un error" + (datos && datos.code ? ` (${datos.code})` : "") + "." };
     return terminar(false, "Pago no completado", textos[tipo] + " Puedes intentarlo de nuevo.");
   }
 }
 
-/** `mock` sólo lo usa el simulador (en Vercel no hay memoria compartida donde guardar el estado falso). */
+function mostrarAviso(texto) {
+  $("folio").textContent = (estado.pedido ? `Pedido ${estado.pedido.folio} · ${dinero(estado.pedido.totalMinor, estado.pedido.moneda)}` : "") + (texto ? " — " + texto : "");
+}
+
+/**
+ * Confirma contra el backend (que pregunta a Alpha). Si Alpha aún no da un estado final (p. ej. un intento rechazado
+ * con la sesión todavía abierta), el formulario sigue montado para reintentar. `mock` sólo lo usa el simulador.
+ */
 async function confirmar(mock) {
   estado.cerrado = true;
+  mostrarAviso("Confirmando con Alpha…");
   const url = "/api/pedidos/" + encodeURIComponent(estado.pedido.token) + (mock ? "?mock=" + mock : "");
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 6; i++) {
     const r = await fetch(url).then((x) => x.json()).catch(() => null);
     const p = r && r.pedido;
     if (p && p.estado === "pagado") return terminar(true, "¡Pago confirmado!", `Pedido ${p.folio} pagado (${dinero(p.totalMinor, p.moneda)}).`);
     if (p && p.estado === "sin_pago") return terminar(false, "Pago no completado", `Alpha reporta: ${p.estadoAlpha}.`);
     await new Promise((ok) => setTimeout(ok, 2000));
   }
-  terminar(false, "Pago en revisión", "Aún no tenemos la confirmación de Alpha. Revisa el pedido más tarde.");
+  estado.cerrado = false;
+  mostrarAviso("Alpha aún no confirma el pago; si fue rechazado, puedes reintentar en el formulario.");
 }
 
 function terminar(ok, titulo, texto) {

@@ -30,7 +30,7 @@ Reglas que respeta, tal como las pide la spec de Alpha:
 - El `result` del iframe sólo dispara la consulta; el pedido se marca pagado cuando Alpha lo confirma.
 - Sólo acepta `postMessage` del `checkoutOrigin` de la sesión.
 
-La firma de `AlphaCheckout.mount` está aislada en `montarCheckout()` (`public/app.js`). Si la guía del MID trae otros nombres, se ajusta ahí. Lo mismo aplica para los estados de sesión, definidos en `PAGADO` y `CERRADO` de `server.js`.
+El SDK real (`alpha-checkout.js` v1) se usa así: `AlphaCheckout.mount({ container, session: { id, embedding, reference? }, onEvent })`, que devuelve `{ iframe, cancel(), destroy() }`. Todos los eventos (`ready`, `resize`, `processing`, `result`, `cancel`, `expired`, `error`) llegan a `onEvent`. El backend entrega `sesion` en esa misma forma. Los estados que cuentan como pagado están en `PAGADO` y `CERRADO` de `lib/tienda.js`.
 
 ## Correr en local
 
@@ -77,10 +77,7 @@ Al arrancar imprime la URL de Alpha, del SDK y el `parentOrigin` que va a mandar
 
 ## Pendiente de confirmar con gateway
 
-- URL publicada de `alpha-checkout.js` en dev y que `Checkout:Embedded:Enabled` esté encendido.
-- Firma exacta de `AlphaCheckout.mount` y nombres de eventos (viene en la guía del MID).
 - Catálogo de `status` de la sesión, para saber cuál es «pagado».
-- Si en sandbox aceptan `https://localhost:5443` como origen.
 
 ## Publicar en Vercel
 
