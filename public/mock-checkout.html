@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkout simulado</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #fafafa; color: #16181d; }
+    .aviso { font-size: 12px; background: #fff7ed; color: #9a3412; padding: 8px 10px; border-radius: 8px; margin-bottom: 14px; }
+    label { display: block; font-size: 13px; margin: 10px 0 4px; color: #646b76; }
+    input { width: 100%; padding: 10px; border: 1px solid #d6dae0; border-radius: 8px; font-size: 15px; box-sizing: border-box; }
+    .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    button { width: 100%; margin-top: 16px; padding: 12px; border: 0; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .pagar { background: #16181d; color: #fff; } .cancelar { background: #e5e7eb; color: #16181d; margin-top: 8px; }
+    .monto { font-size: 22px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="aviso">Checkout SIMULADO de la tienda demo. No captura tarjetas reales.</div>
+  <div class="monto" id="monto"></div>
+  <label>Número de tarjeta</label><input value="4111 1111 1111 1111" readonly>
+  <div class="fila">
+    <div><label>Vence</label><input value="12/30" readonly></div>
+    <div><label>CVV</label><input value="123" readonly></div>
+  </div>
+  <button class="pagar" id="pagar">Pagar</button>
+  <button class="cancelar" id="cancelar">Cancelar</button>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const sessionId = q.get("session");
+    document.getElementById("monto").textContent =
+      new Intl.NumberFormat("es-MX", { style: "currency", currency: q.get("moneda") || "MXN" }).format(Number(q.get("monto")) / 100);
+    function fin(estado, tipo) {
+      parent.postMessage({ protocol: "alpha.checkout.v1", type: tipo, sessionId }, location.origin);
+    }
+    document.getElementById("pagar").onclick = () => fin("paid", "result");
+    document.getElementById("cancelar").onclick = () => fin("canceled", "cancel");
+  </script>
+</body>
+</html>

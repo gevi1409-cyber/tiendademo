@@ -1,0 +1,11 @@
+{
+  "name": "alpha-connect-tienda-demo",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Tienda demo: integración de referencia del checkout embebido de Alpha (alpha.checkout.v1)",
+  "engines": { "node": ">=20.12" },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env server.js",
+    "mock": "node server.js"
+  }
+}

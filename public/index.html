@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tienda demo · Checkout Alpha</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="barra">
+    <div class="marca">Tienda demo</div>
+    <span id="modo" class="chip"></span>
+  </header>
+
+  <main class="layout">
+    <section>
+      <h1>Productos</h1>
+      <div id="catalogo" class="catalogo"></div>
+    </section>
+
+    <aside class="panel" id="panel">
+      <div id="vista-carrito">
+        <h2>Tu carrito</h2>
+        <ul id="carrito" class="lineas"></ul>
+        <div class="total"><span>Total</span><strong id="total">$0.00</strong></div>
+        <button id="pagar" class="primario" disabled>Pagar</button>
+        <p id="error" class="error" hidden></p>
+      </div>
+
+      <div id="vista-pago" hidden>
+        <div class="cabeza-pago">
+          <h2>Pago</h2>
+          <button id="volver" class="link">Volver al carrito</button>
+        </div>
+        <p class="muted" id="folio"></p>
+        <!-- Aquí monta Alpha su iframe (captura de tarjeta y 3DS viven dentro). -->
+        <div id="checkout" class="checkout"></div>
+      </div>
+
+      <div id="vista-resultado" hidden>
+        <h2 id="res-titulo"></h2>
+        <p id="res-texto" class="muted"></p>
+        <button id="otra" class="primario">Nueva compra</button>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
