@@ -33,3 +33,10 @@ button.link { border: 0; background: none; color: var(--acento); cursor: pointer
 .error { color: var(--mal); font-size: 14px; white-space: pre-wrap; }
 .ok { color: var(--ok); } .mal { color: var(--mal); }
 @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .panel { position: static; } }
+.aviso { margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; font-size: 14px; }
+.aviso.info { background: #eff6ff; color: #1e40af; }
+.aviso.mal { background: #fef2f2; color: var(--mal); }
+.info { color: #1e40af; }
+.detalle { font-size: 14px; background: var(--bg); border-radius: 8px; padding: 10px 12px; }
+.acciones { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.acciones button.sec { width: 100%; padding: 11px; }

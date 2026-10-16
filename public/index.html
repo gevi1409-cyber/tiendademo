@@ -33,14 +33,20 @@
           <button id="volver" class="link">Volver al carrito</button>
         </div>
         <p class="muted" id="folio"></p>
+        <p id="aviso" class="aviso" hidden aria-live="polite"></p>
         <!-- Aquí monta Alpha su iframe (captura de tarjeta y 3DS viven dentro). -->
         <div id="checkout" class="checkout"></div>
       </div>
 
-      <div id="vista-resultado" hidden>
+      <div id="vista-resultado" hidden aria-live="polite">
         <h2 id="res-titulo"></h2>
         <p id="res-texto" class="muted"></p>
-        <button id="otra" class="primario">Nueva compra</button>
+        <p id="res-detalle" class="detalle" hidden></p>
+        <div class="acciones">
+          <button id="reintentar" class="primario" hidden>Reintentar el pago</button>
+          <button id="revisar" class="primario" hidden>Revisar de nuevo</button>
+          <button id="otra" class="sec">Volver al carrito</button>
+        </div>
       </div>
     </aside>
   </main>

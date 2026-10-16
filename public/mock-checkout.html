@@ -23,17 +23,23 @@
     <div><label>Vence</label><input value="12/30" readonly></div>
     <div><label>CVV</label><input value="123" readonly></div>
   </div>
-  <button class="pagar" id="pagar">Pagar</button>
+  <button class="pagar" id="pagar">Pagar (aprobado)</button>
+  <button class="cancelar" id="rechazar">Pagar (rechazado)</button>
+  <button class="cancelar" id="vencer">Simular vencimiento</button>
   <button class="cancelar" id="cancelar">Cancelar</button>
   <script>
     const q = new URLSearchParams(location.search);
     const sessionId = q.get("session");
     document.getElementById("monto").textContent =
       new Intl.NumberFormat("es-MX", { style: "currency", currency: q.get("moneda") || "MXN" }).format(Number(q.get("monto")) / 100);
+    // mockEstado sólo existe en el simulador: le dice al backend mock qué "respondería Alpha".
     function fin(estado, tipo) {
-      parent.postMessage({ protocol: "alpha.checkout.v1", type: tipo, sessionId }, location.origin);
+      parent.postMessage({ protocol: "alpha.checkout.v1", type: "processing", sessionId }, location.origin);
+      setTimeout(() => parent.postMessage({ protocol: "alpha.checkout.v1", type: tipo, sessionId, mockEstado: estado }, location.origin), 600);
     }
     document.getElementById("pagar").onclick = () => fin("paid", "result");
+    document.getElementById("rechazar").onclick = () => fin("declined", "result");
+    document.getElementById("vencer").onclick = () => fin("expired", "expired");
     document.getElementById("cancelar").onclick = () => fin("canceled", "cancel");
   </script>
 </body>

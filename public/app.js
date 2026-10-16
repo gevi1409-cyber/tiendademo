@@ -98,6 +98,20 @@ function montarCheckout(contenedor, sesion, alEvento) {
 }
 
 // ── Flujo de pago ──────────────────────────────────────────────────────────────
+//
+// Reglas (spec Alpha): el evento del iframe NUNCA es comprobante. `result`, `cancel`, `expired` y `error` sólo
+// disparan la consulta al backend de la tienda, que pregunta a Alpha (GET de la sesión con la key del MID). Lo que
+// se le dice al comprador sale de esa respuesta:
+//   pagado     → pantalla de éxito (folio, monto, tarjeta, autorización) y se vacía el carrito.
+//   rechazado  → aviso en el mismo formulario: puede reintentar con otra tarjeta mientras la sesión siga abierta.
+//   sin_pago   → pantalla de fallo con «Reintentar» (nueva sesión, mismo carrito) o volver al carrito.
+//   pendiente  → «Estamos confirmando tu pago» con «Revisar de nuevo»; el carrito NO se vacía.
+// Desde `processing` el pedido se guarda en sessionStorage: si el comprador recarga a media confirmación, se retoma.
+
+const CLAVE_EN_CURSO = "tienda.pedidoEnCurso";
+const guardar = (p) => { try { p ? sessionStorage.setItem(CLAVE_EN_CURSO, JSON.stringify(p)) : sessionStorage.removeItem(CLAVE_EN_CURSO); } catch { /* sin storage */ } };
+const leerGuardado = () => { try { return JSON.parse(sessionStorage.getItem(CLAVE_EN_CURSO) || "null"); } catch { return null; } };
+
 async function pagar() {
   mostrarError("");
   $("pagar").disabled = true;
@@ -114,6 +128,7 @@ async function pagar() {
     estado.cerrado = false;
     await cargarSdk(estado.cfg.sdkUrl);
     $("folio").textContent = `Pedido ${j.pedido.folio} · ${dinero(j.pedido.totalMinor, j.pedido.moneda)}`;
+    aviso("");
     vista("pago");
     estado.desmontar = montarCheckout($("checkout"), j.sesion, alEvento);
   } catch (e) {
@@ -124,54 +139,121 @@ async function pagar() {
   }
 }
 
-/** El evento del iframe NO es comprobante: sólo dispara la confirmación en el backend. */
+/** Banda de estado sobre el formulario: tipo = info | mal. */
+function aviso(texto, tipo = "info") {
+  const el = $("aviso");
+  el.textContent = texto || "";
+  el.className = "aviso " + tipo;
+  el.hidden = !texto;
+}
+
 async function alEvento(tipo, datos) {
   console.log("[checkout]", tipo, datos);
   if (estado.cerrado) return;
-  if (tipo === "processing") return mostrarAviso("Procesando el pago…");
-  if (tipo === "result") return confirmar(estado.cfg.modo === "mock" ? "paid" : "");
+  const mock = estado.cfg.modo === "mock" ? (datos && datos.mockEstado) || "" : "";
+  // Desde que el comprador envía la tarjeta, el pedido queda «en curso»: si recarga, se retoma la confirmación.
+  if (tipo === "processing" || tipo === "result") {
+    const p = estado.pedido;
+    guardar({ token: p.token, folio: p.folio, totalMinor: p.totalMinor, moneda: p.moneda });
+  }
+  if (tipo === "processing") return aviso("Procesando tu pago… no cierres esta ventana.");
+  if (tipo === "result") return confirmar({ mock, origen: "result" });
   if (tipo === "cancel" || tipo === "expired" || tipo === "error") {
-    estado.cerrado = true;
-    const textos = { cancel: "Cancelaste el pago.", expired: "La sesión de pago venció.", error: "El checkout reportó un error" + (datos && datos.code ? ` (${datos.code})` : "") + "." };
-    return terminar(false, "Pago no completado", textos[tipo] + " Puedes intentarlo de nuevo.");
+    // Antes de decir «falló» se verifica: un cancel/error tardío no debe ocultar un cobro que sí ocurrió.
+    return confirmar({ mock, origen: tipo, intentos: 2, codigo: datos && datos.code });
   }
 }
 
-function mostrarAviso(texto) {
-  $("folio").textContent = (estado.pedido ? `Pedido ${estado.pedido.folio} · ${dinero(estado.pedido.totalMinor, estado.pedido.moneda)}` : "") + (texto ? " — " + texto : "");
-}
+const esperar = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
 /**
- * Confirma contra el backend (que pregunta a Alpha). Si Alpha aún no da un estado final (p. ej. un intento rechazado
- * con la sesión todavía abierta), el formulario sigue montado para reintentar. `mock` sólo lo usa el simulador.
+ * Consulta el pedido en el backend hasta tener un estado final. `origen` = evento que la disparó.
+ * Reintenta ~30 s con espera creciente (Alpha puede tardar en reflejar el cobro tras 3DS).
  */
-async function confirmar(mock) {
+async function confirmar({ mock = "", origen = "result", intentos = 10, codigo = "" } = {}) {
+  if (!estado.pedido) return;
   estado.cerrado = true;
-  mostrarAviso("Confirmando con Alpha…");
+  aviso("Confirmando tu pago con el banco…");
   const url = "/api/pedidos/" + encodeURIComponent(estado.pedido.token) + (mock ? "?mock=" + mock : "");
-  for (let i = 0; i < 6; i++) {
+  let ultimo = null;
+  for (let i = 0; i < intentos; i++) {
     const r = await fetch(url).then((x) => x.json()).catch(() => null);
     const p = r && r.pedido;
-    if (p && p.estado === "pagado") return terminar(true, "¡Pago confirmado!", `Pedido ${p.folio} pagado (${dinero(p.totalMinor, p.moneda)}).`);
-    if (p && p.estado === "sin_pago") return terminar(false, "Pago no completado", `Alpha reporta: ${p.estadoAlpha}.`);
-    await new Promise((ok) => setTimeout(ok, 2000));
+    if (p) ultimo = p;
+    if (p && p.estado === "pagado") return exito(p);
+    if (p && p.estado === "rechazado") return rechazo(p);
+    if (p && p.estado === "sin_pago") return fallo(p, origen, codigo);
+    await esperar(Math.min(1500 + i * 500, 4000));
   }
-  estado.cerrado = false;
-  mostrarAviso("Alpha aún no confirma el pago; si fue rechazado, puedes reintentar en el formulario.");
+  // Sin estado final: si el evento fue cancel/expired/error, el comprador no pagó (o no terminó) → fallo.
+  if (origen !== "result") return fallo(ultimo, origen, codigo);
+  return pendiente(ultimo);
 }
 
-function terminar(ok, titulo, texto) {
+function detalleTarjeta(p) {
+  const g = (p && p.pago) || {};
+  const partes = [];
+  if (g.marca || g.ultimos4) partes.push(`${g.marca || "Tarjeta"}${g.ultimos4 ? " •••• " + g.ultimos4 : ""}`);
+  if (g.autorizacion) partes.push(`Autorización ${g.autorizacion}`);
+  return partes.join(" · ");
+}
+
+function exito(p) {
+  guardar(null);
+  cerrarCheckout();
+  estado.carrito.clear();
+  pintarCarrito();
+  resultado("ok", "¡Pago aprobado!", `Gracias por tu compra. Tu pedido ${p.folio} por ${dinero(p.totalMinor, p.moneda)} quedó pagado.`,
+    detalleTarjeta(p), { otra: "Seguir comprando" });
+}
+
+function rechazo(p) {
+  // La sesión puede seguir abierta: el comprador reintenta en el mismo formulario.
+  estado.cerrado = false;
+  const motivo = p.pago && p.pago.motivo ? ` (${p.pago.motivo})` : "";
+  aviso(`Tu pago fue rechazado${motivo}. Puedes intentar con otra tarjeta.`, "mal");
+}
+
+function fallo(p, origen, codigo) {
+  guardar(null);
+  cerrarCheckout();
+  const textos = {
+    cancel: "Cancelaste el pago. No se hizo ningún cargo.",
+    expired: "El tiempo para pagar se agotó. No se hizo ningún cargo.",
+    error: "Hubo un problema con el formulario de pago" + (codigo ? ` (${codigo})` : "") + ". No se hizo ningún cargo.",
+    result: "El pago no se completó" + (p && p.pago && p.pago.motivo ? `: ${p.pago.motivo}` : "") + ". No se hizo ningún cargo.",
+  };
+  resultado("mal", "Pago no completado", textos[origen] || textos.result, "", { reintentar: true, otra: "Volver al carrito" });
+}
+
+function pendiente(p) {
+  cerrarCheckout();
+  resultado("info", "Estamos confirmando tu pago",
+    `Aún no recibimos la confirmación del banco para el pedido ${p ? p.folio : estado.pedido.folio}. No vuelvas a pagar: revisa en unos momentos.`,
+    "", { revisar: true, otra: "Volver al carrito" });
+}
+
+function cerrarCheckout() {
   if (estado.desmontar) { estado.desmontar(); estado.desmontar = null; }
+}
+
+function resultado(tono, titulo, texto, detalle, botones) {
   $("res-titulo").textContent = titulo;
-  $("res-titulo").className = ok ? "ok" : "mal";
+  $("res-titulo").className = tono;
   $("res-texto").textContent = texto;
-  if (ok) { estado.carrito.clear(); pintarCarrito(); }
+  $("res-detalle").textContent = detalle || "";
+  $("res-detalle").hidden = !detalle;
+  $("reintentar").hidden = !botones.reintentar;
+  $("revisar").hidden = !botones.revisar;
+  $("otra").textContent = botones.otra || "Volver al carrito";
   vista("resultado");
 }
 
 function volver() {
-  if (estado.desmontar) { estado.desmontar(); estado.desmontar = null; }
+  // Salir a media compra: el pedido abandonado se olvida (la sesión de Alpha vence sola).
+  cerrarCheckout();
   estado.cerrado = true;
+  guardar(null);
   vista("carrito");
 }
 
@@ -186,4 +268,15 @@ function volver() {
   $("pagar").onclick = pagar;
   $("volver").onclick = volver;
   $("otra").onclick = () => vista("carrito");
+  $("reintentar").onclick = () => { vista("carrito"); pagar(); };
+  $("revisar").onclick = () => confirmar({ origen: "result", intentos: 3 });
+
+  // ¿Quedó un pago a medio confirmar (recarga, pestaña cerrada tras 3DS…)? Se retoma.
+  const previo = leerGuardado();
+  if (previo && previo.token) {
+    estado.pedido = previo;
+    vista("resultado");
+    resultado("info", "Revisando tu pago anterior…", `Pedido ${previo.folio}`, "", {});
+    await confirmar({ origen: "result", intentos: 3 });
+  }
 })();
