@@ -40,3 +40,4 @@ button.link { border: 0; background: none; color: var(--acento); cursor: pointer
 .detalle { font-size: 14px; background: var(--bg); border-radius: 8px; padding: 10px 12px; }
 .acciones { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
 .acciones button.sec { width: 100%; padding: 11px; }
+.chip.prod { background: #fef2f2; color: #991b1b; font-weight: 600; }

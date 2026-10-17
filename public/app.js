@@ -261,8 +261,9 @@ function volver() {
 (async function () {
   estado.cfg = await fetch("/api/config").then((r) => r.json());
   const chip = $("modo");
-  chip.textContent = estado.cfg.modo === "mock" ? "Simulado (sin Alpha)" : "Alpha sandbox";
-  chip.className = "chip " + estado.cfg.modo;
+  const prod = estado.cfg.modo !== "mock" && estado.cfg.ambiente === "production";
+  chip.textContent = estado.cfg.modo === "mock" ? "Simulado (sin Alpha)" : prod ? "Alpha PRODUCCIÓN · cobros reales" : "Alpha sandbox";
+  chip.className = "chip " + estado.cfg.modo + (prod ? " prod" : "");
   pintarCatalogo();
   pintarCarrito();
   $("pagar").onclick = pagar;
